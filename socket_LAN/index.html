@@ -1,0 +1,831 @@
+<!DOCTYPE html>
+
+<html>
+
+<head>
+
+    <meta charset="UTF-8">
+
+    <title>LAN WebSocket Chat</title>
+
+
+    <style>
+
+        body {
+
+            font-family: Arial;
+
+            background: #eeeeee;
+
+            margin: 0;
+
+            height: 100vh;
+
+            display: flex;
+
+            justify-content: center;
+
+            align-items: center;
+
+        }
+
+
+        .chat {
+
+            width: 650px;
+
+            height: 700px;
+
+            background: white;
+
+            border-radius: 10px;
+
+            display: flex;
+
+            flex-direction: column;
+
+            overflow: hidden;
+
+            box-shadow:
+                0 0 15px
+                rgba(0,0,0,0.2);
+
+        }
+
+
+        .header {
+
+            background: #222;
+
+            color: white;
+
+            padding: 20px;
+
+            text-align: center;
+
+            font-size: 22px;
+
+        }
+
+
+        #messages {
+
+            flex: 1;
+
+            padding: 20px;
+
+            overflow-y: auto;
+
+        }
+
+
+        .message {
+
+            padding: 10px;
+
+            margin-bottom: 8px;
+
+            background: #eeeeee;
+
+            border-radius: 5px;
+
+        }
+
+
+        .system {
+
+            color: gray;
+
+            font-style: italic;
+
+        }
+
+
+        .file {
+
+            background: #e8f0ff;
+
+        }
+
+
+        .bottom {
+
+            padding: 10px;
+
+            border-top: 1px solid #ddd;
+
+        }
+
+
+        .input-row {
+
+            display: flex;
+
+            gap: 5px;
+
+        }
+
+
+        #messageInput {
+
+            flex: 1;
+
+            padding: 12px;
+
+            font-size: 16px;
+
+        }
+
+
+        button {
+
+            padding: 10px 15px;
+
+            cursor: pointer;
+
+        }
+
+
+        #fileInput {
+
+            margin-bottom: 10px;
+
+        }
+
+
+        #progress {
+
+            width: 100%;
+
+            margin-bottom: 8px;
+
+            display: none;
+
+        }
+
+    </style>
+
+</head>
+
+
+<body>
+
+
+<div class="chat">
+
+
+    <div class="header">
+
+        LAN WebSocket Chat
+
+    </div>
+
+
+    <div id="messages">
+
+    </div>
+
+
+    <div class="bottom">
+
+
+        <input
+            type="file"
+            id="fileInput"
+        >
+
+
+        <progress
+            id="progress"
+            value="0"
+            max="100"
+        ></progress>
+
+
+        <div class="input-row">
+
+
+            <input
+                type="text"
+                id="messageInput"
+                placeholder="Type a message..."
+            >
+
+
+            <button
+                onclick="sendMessage()"
+            >
+                Send
+            </button>
+
+
+            <button
+                onclick="sendFile()"
+            >
+                File
+            </button>
+
+
+        </div>
+
+    </div>
+
+</div>
+
+
+<script>
+
+
+// ============================================================
+// WEBSOCKET CONNECTION
+// ============================================================
+
+
+const protocol =
+    location.protocol === "https:"
+        ? "wss:"
+        : "ws:";
+
+
+const socket =
+    new WebSocket(
+
+        protocol +
+        "//" +
+        location.host +
+        "/ws"
+
+    );
+
+
+// ============================================================
+// CONNECTION OPEN
+// ============================================================
+
+
+socket.onopen = function() {
+
+    addSystemMessage(
+        "Connected to server"
+    );
+
+};
+
+
+// ============================================================
+// RECEIVE MESSAGE
+// ============================================================
+
+
+socket.onmessage = function(event) {
+
+
+    // WebSocket messages from server
+    // are JSON text in our application
+
+
+    const data =
+        JSON.parse(event.data);
+
+
+    // --------------------------------------------------------
+    // SYSTEM
+    // --------------------------------------------------------
+
+    if (data.type === "system") {
+
+        addSystemMessage(
+            data.message
+        );
+
+    }
+
+
+    // --------------------------------------------------------
+    // CHAT
+    // --------------------------------------------------------
+
+    else if (data.type === "chat") {
+
+        addMessage(
+            data.username,
+            data.message
+        );
+
+    }
+
+
+    // --------------------------------------------------------
+    // FILE
+    // --------------------------------------------------------
+
+    else if (data.type === "file") {
+
+        addFileMessage(
+            data.username,
+            data.filename,
+            data.file_id
+        );
+
+    }
+
+
+    // --------------------------------------------------------
+    // FILE PROGRESS
+    // --------------------------------------------------------
+
+    else if (
+        data.type === "file_progress"
+    ) {
+
+        const percentage =
+            (
+                data.received /
+                data.total
+            ) * 100;
+
+
+        const progress =
+            document.getElementById(
+                "progress"
+            );
+
+
+        progress.style.display =
+            "block";
+
+
+        progress.value =
+            percentage;
+
+
+        if (
+            data.received ===
+            data.total
+        ) {
+
+            setTimeout(
+                function() {
+
+                    progress.style.display =
+                        "none";
+
+                    progress.value =
+                        0;
+
+                },
+                500
+            );
+
+        }
+
+    }
+
+
+    // --------------------------------------------------------
+    // FILE STATUS
+    // --------------------------------------------------------
+
+    else if (
+        data.type === "file_status"
+    ) {
+
+        addSystemMessage(
+            data.message
+        );
+
+    }
+
+
+    // --------------------------------------------------------
+    // FILE ERROR
+    // --------------------------------------------------------
+
+    else if (
+        data.type === "file_error"
+    ) {
+
+        addSystemMessage(
+            "File error: " +
+            data.message
+        );
+
+    }
+
+};
+
+
+// ============================================================
+// CONNECTION CLOSED
+// ============================================================
+
+
+socket.onclose = function() {
+
+    addSystemMessage(
+        "Disconnected from server"
+    );
+
+};
+
+
+// ============================================================
+// SEND CHAT MESSAGE
+// ============================================================
+
+
+function sendMessage() {
+
+
+    const input =
+        document.getElementById(
+            "messageInput"
+        );
+
+
+    const message =
+        input.value;
+
+
+    if (
+        message.trim() === ""
+    ) {
+
+        return;
+
+    }
+
+
+    socket.send(
+
+        JSON.stringify({
+
+            type: "chat",
+
+            message: message
+
+        })
+
+    );
+
+
+    input.value = "";
+
+}
+
+
+// ============================================================
+// SEND FILE
+// ============================================================
+
+
+async function sendFile() {
+
+
+    const input =
+        document.getElementById(
+            "fileInput"
+        );
+
+
+    const file =
+        input.files[0];
+
+
+    if (!file) {
+
+        alert(
+            "Select a file first"
+        );
+
+        return;
+
+    }
+
+
+    // --------------------------------------------------------
+    // 50 MB LIMIT
+    // --------------------------------------------------------
+
+    const MAX_SIZE =
+        50 * 1024 * 1024;
+
+
+    if (
+        file.size > MAX_SIZE
+    ) {
+
+        alert(
+            "Maximum file size is 50 MB"
+        );
+
+        return;
+
+    }
+
+
+    // --------------------------------------------------------
+    // FILE START
+    // --------------------------------------------------------
+
+    socket.send(
+
+        JSON.stringify({
+
+            type: "file_start",
+
+            filename: file.name,
+
+            size: file.size
+
+        })
+
+    );
+
+
+    addSystemMessage(
+        "Sending: " +
+        file.name
+    );
+
+
+    // --------------------------------------------------------
+    // SEND BINARY CHUNKS
+    // --------------------------------------------------------
+
+    let offset = 0;
+
+
+    while (
+        offset < file.size
+    ) {
+
+
+        const chunk =
+            file.slice(
+                offset,
+                offset + 64 * 1024
+            );
+
+
+        const buffer =
+            await chunk.arrayBuffer();
+
+
+        // THIS IS REAL BINARY DATA
+
+        socket.send(
+            buffer
+        );
+
+
+        offset +=
+            chunk.size;
+
+
+        // Give browser time to process
+        // other events
+
+        await new Promise(
+            resolve =>
+                setTimeout(
+                    resolve,
+                    0
+                )
+        );
+
+    }
+
+
+    // --------------------------------------------------------
+    // FILE END
+    // --------------------------------------------------------
+
+    socket.send(
+
+        JSON.stringify({
+
+            type: "file_end"
+
+        })
+
+    );
+
+
+    addSystemMessage(
+        "File sent: " +
+        file.name
+    );
+
+
+    input.value = "";
+
+}
+
+
+// ============================================================
+// DISPLAY CHAT
+// ============================================================
+
+
+function addMessage(
+    username,
+    message
+) {
+
+
+    const messages =
+        document.getElementById(
+            "messages"
+        );
+
+
+    const div =
+        document.createElement(
+            "div"
+        );
+
+
+    div.className =
+        "message";
+
+
+    div.textContent =
+        username +
+        ": " +
+        message;
+
+
+    messages.appendChild(
+        div
+    );
+
+
+    scrollToBottom();
+
+}
+
+
+// ============================================================
+// SYSTEM MESSAGE
+// ============================================================
+
+
+function addSystemMessage(
+    message
+) {
+
+
+    const messages =
+        document.getElementById(
+            "messages"
+        );
+
+
+    const div =
+        document.createElement(
+            "div"
+        );
+
+
+    div.className =
+        "message system";
+
+
+    div.textContent =
+        message;
+
+
+    messages.appendChild(
+        div
+    );
+
+
+    scrollToBottom();
+
+}
+
+
+// ============================================================
+// FILE MESSAGE
+// ============================================================
+
+
+function addFileMessage(
+    username,
+    filename,
+    fileId
+) {
+
+
+    const messages =
+        document.getElementById(
+            "messages"
+        );
+
+
+    const div =
+        document.createElement(
+            "div"
+        );
+
+
+    div.className =
+        "message file";
+
+
+    div.textContent =
+        username +
+        " sent: ";
+
+
+    const link =
+        document.createElement(
+            "a"
+        );
+
+
+    link.href =
+        "/download/" +
+        fileId;
+
+
+    link.textContent =
+        "Download " +
+        filename;
+
+
+    link.target =
+        "_blank";
+
+
+    link.download =
+        filename;
+
+
+    div.appendChild(
+        link
+    );
+
+
+    messages.appendChild(
+        div
+    );
+
+
+    scrollToBottom();
+
+}
+
+
+// ============================================================
+// SCROLL
+// ============================================================
+
+
+function scrollToBottom() {
+
+
+    const messages =
+        document.getElementById(
+            "messages"
+        );
+
+
+    messages.scrollTop =
+        messages.scrollHeight;
+
+}
+
+
+// ============================================================
+// ENTER KEY
+// ============================================================
+
+
+document
+    .getElementById(
+        "messageInput"
+    )
+    .addEventListener(
+        "keydown",
+        function(event) {
+
+            if (
+                event.key === "Enter"
+            ) {
+
+                sendMessage();
+
+            }
+
+        }
+    );
+
+
+</script>
+
+
+</body>
+
+</html>
